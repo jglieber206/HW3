@@ -14,11 +14,6 @@
 #include <algorithm>
 
 namespace ParallelBFS {
-    
-    struct workItem {
-        SlidingPuzzleState state;
-        uint32_t rank;
-    };
 	
 	const int workSize = 10000;
 	
@@ -32,45 +27,46 @@ namespace ParallelBFS {
 	void WorkerThread(SharedLList<uint32_t> *workQueue, std::mutex *dataLock, uint8_t *data, uint32_t *seenStates, int depth)
 	{
 		// Write your solution code here
-        Timer roundTimer;
         
+        SlidingPuzzleState s;
+        LList<int> moves;
         
-        workQueue->RemoveFront(*seenStates);
-//        s.Unrank(x);
-//        s.GetMoves(moves);
-        
-        //data = stateDepths
-        
-        
-        
-//        s.ApplyMove(moves.PeekFront());
-//        uint32_t rank = s.Rank();
-//        s.UndoMove(moves.PeekFront());
-//        moves.RemoveFront();
-//        
-//        if (stateDepths[rank] == 255)
-//        {
-//            stateDepths[rank] = currDepth+1;
-//            seenStates++;
-//        }
+        uint32_t start;
+        while (true) {
+            if (!workQueue->RemoveFront(start)) {
+                std::this_thread::yield();
+            }
+            else {
+                uint32_t stop = std::min(start + workSize, s.GetMaxRank());
+                if (start == stop) {
+                    std::cout << ("We are done!");
+                    return;
+                }
+                
+                // Loop from start to stop
+                for(int i = start*workSize; i < stop; ++i) {
+                    s.Unrank(i);
+                    s.GetMoves(moves);
+                    while(moves.IsEmpty() == false) {
+                        s.ApplyMove(moves.PeekFront());
+                        uint32_t rank = s.Rank();
+                        s.Unrank(moves.PeekFront());
+                        moves.RemoveFront();
+                        dataLock->lock();
+                        if(data[rank] == 255) {
+                            data[rank] = depth + 1;
+                            seenStates++;
+                        }
+                        dataLock->unlock();
+                    }
+                    
+                }
 
-
+            }
+        }
         
 	}
     
-    void workerThread(SharedLList<workItem> *workQueue, std::mutex *dataLock, uint8_t *data, uint32_t *seenStates, int depth)
-    {
-        // Write your solution code here
-        Timer roundTimer;
-        
-        workItem aWork;
-        LList<int> moves;
-        
-        
-        workQueue->RemoveFront(aWork);
-        aWork.state.Unrank(aWork.rank);
-        aWork.state.GetMoves(moves);
-    }
 	
 	void DoBFS(int numThreads)
 	{
@@ -79,7 +75,6 @@ namespace ParallelBFS {
 		SlidingPuzzleState s;
 		LList<int> moves;
 		SharedLList<uint32_t> workQueue;
-        SharedLList<workItem> workQ;
 		std::mutex lock;
 		std::thread **threads = new std::thread*[numThreads];
 		
@@ -103,30 +98,31 @@ namespace ParallelBFS {
 			// Write the code:
 			// 1. to displatch threads
             
-            // workQueue.AddBack(s.Unrank(stateDepths[currDepth]));
             for (int i = 0; i < numThreads; ++i)
             {
-                threads[i] = new std::thread(workerThread, workQ, lock, stateDepths, seenStates, currDepth);
-                
+                threads[i] = new std::thread(WorkerThread, &workQueue, &lock, stateDepths, &seenStates, currDepth);
             }
             
-            for (int x = 0; x < s.GetMaxRank(); ++x)
+            // 2. to send the work to the queue
+            uint32_t numRanges;
+            numRanges = std::min((s.GetMaxRank()+workSize-1)/workSize, s.GetMaxRank());
+            for (uint32_t x = workSize; x < numRanges; x++)
             {
-                if (stateDepths[x] == currDepth)
-                {
-                    workItem work;
-                    work.state = s;
-                    work.rank = x;
-            
-                    workQ.AddBack(work);
-                }
+                workQueue.AddBack(x*workSize);
+            }
+        
+			// 3. to tell the threads that all work is complete
+            for (int x = 0; x < numThreads; x++)
+            {
+                workQueue.AddBack(s.GetMaxRank()+1);
             }
             
-			// 2. to send the work to the queue
-			// 3. to tell the threads that all work is complete
 			// 4. to join with the threads
-
-			
+            for (int x = 0; x < numThreads; x++)
+            {
+                threads[x]->join();
+                delete threads[x];
+            }
 			
 			
 			std::cout << roundTimer.GetElapsedTime() << "s elapsed. ";
