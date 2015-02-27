@@ -106,6 +106,11 @@ namespace ParallelBFS {
             // 2. to send the work to the queue
             uint32_t numRanges;
             numRanges = std::min((s.GetMaxRank()+workSize-1)/workSize, s.GetMaxRank());
+            /*****************************
+            *********************
+            *******FIX THIS PART BELOW*
+            *********************
+            ******************************/
             for (uint32_t x = workSize; x < numRanges; x++)
             {
                 workQueue.AddBack(x*workSize);
